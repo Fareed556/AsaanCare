@@ -1,0 +1,3 @@
+- [SahatGhar project layout](sahatghar-layout.md) — Monorepo under Supabase-Gateway/; admin at port 5000, API at port 3000.
+- [SahatGhar API patterns](sahatghar-api.md) — API server uses in-memory mock data; pagination utility in lib/pagination.ts; error classes in lib/errors.ts.
+- [SahatGhar admin auth](sahatghar-auth.md) — Hardcoded bypass: admin@sahatghar.pk / SahatGhar@2025!. Supabase Realtime "httpSend" warnings are benign/pre-existing.
