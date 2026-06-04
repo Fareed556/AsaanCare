@@ -1,35 +1,165 @@
 import { Router } from "express";
+import { eq, sql, count, and, gte, lt } from "drizzle-orm";
+import { db, subscriptionPlansTable, patientSubscriptionsTable } from "../lib/db";
 import { requireAuth } from "../middlewares/auth";
+import { parsePagination } from "../lib/pagination";
 
 const router = Router();
 router.use(requireAuth);
 
-const plans = [
-  { id: "plan_free", name: "Free", price: 0, billing_cycle: "monthly", features: { video_consults: 0, lab_tests: 0, priority_appointments: 0, family_members: 1, health_locker_storage: "100 MB", dedicated_support: false }, active_subscribers: 8420 },
-  { id: "plan_basic", name: "Basic", price: 1499, billing_cycle: "monthly", features: { video_consults: 4, lab_tests: 10, priority_appointments: 1, family_members: 2, health_locker_storage: "1 GB", dedicated_support: false }, active_subscribers: 2840 },
-  { id: "plan_standard", name: "Standard", price: 2999, billing_cycle: "monthly", features: { video_consults: 10, lab_tests: 20, priority_appointments: 2, family_members: 3, health_locker_storage: "20 GB", dedicated_support: true }, active_subscribers: 960 },
-  { id: "plan_family", name: "Family", price: 4999, billing_cycle: "monthly", features: { video_consults: "Unlimited", lab_tests: "Unlimited", priority_appointments: "Unlimited", family_members: "Up to 6", health_locker_storage: "50 GB", dedicated_support: true }, active_subscribers: 320 },
-];
+// GET /subscriptions/plans
+router.get("/subscriptions/plans", async (_req, res, next) => {
+  try {
+    const plans = await db.select().from(subscriptionPlansTable).where(eq(subscriptionPlansTable.isActive, true));
 
-router.get("/subscriptions/plans", (_req, res) => res.json(plans));
+    // Attach live subscriber count to each plan
+    const withCounts = await Promise.all(
+      plans.map(async (plan) => {
+        const [row] = await db
+          .select({ count: count() })
+          .from(patientSubscriptionsTable)
+          .where(
+            and(
+              eq(patientSubscriptionsTable.planId, plan.id),
+              eq(patientSubscriptionsTable.status, "ACTIVE"),
+            ),
+          );
+        return { ...plan, active_subscribers: Number(row?.count ?? 0) };
+      }),
+    );
 
-router.get("/subscriptions/stats", (_req, res) => {
-  const total = plans.reduce((s, p) => s + p.active_subscribers, 0);
-  res.json({
-    mrr: plans.reduce((s, p) => s + p.price * p.active_subscribers, 0),
-    active_subscribers: total,
-    churn_rate: 2.35,
-    renewals_this_month: 1256,
-    plan_distribution: plans.map(p => ({
-      plan: p.name,
-      count: p.active_subscribers,
-      percentage: ((p.active_subscribers / total) * 100).toFixed(1),
-    })),
-  });
+    res.json(withCounts);
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.get("/subscriptions", (_req, res) => {
-  res.json({ data: [], total: 0, page: 1, limit: 10, totalPages: 0 });
+// GET /subscriptions/stats
+router.get("/subscriptions/stats", async (_req, res, next) => {
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    // MRR = sum of active subscription amounts
+    const [mrrRow] = await db
+      .select({ mrr: sql<string>`COALESCE(SUM(${patientSubscriptionsTable.amount}), 0)` })
+      .from(patientSubscriptionsTable)
+      .where(eq(patientSubscriptionsTable.status, "ACTIVE"));
+
+    // Active subscribers count
+    const [activeRow] = await db
+      .select({ count: count() })
+      .from(patientSubscriptionsTable)
+      .where(eq(patientSubscriptionsTable.status, "ACTIVE"));
+
+    // Renewals this month = subscriptions whose end_date falls in the current month
+    const [renewalsRow] = await db
+      .select({ count: count() })
+      .from(patientSubscriptionsTable)
+      .where(
+        and(
+          gte(patientSubscriptionsTable.endDate, startOfMonth),
+          lt(patientSubscriptionsTable.endDate, endOfMonth),
+        ),
+      );
+
+    // Cancelled this month for churn rate
+    const [cancelledRow] = await db
+      .select({ count: count() })
+      .from(patientSubscriptionsTable)
+      .where(eq(patientSubscriptionsTable.status, "CANCELLED"));
+
+    const totalActive = Number(activeRow?.count ?? 0);
+    const totalCancelled = Number(cancelledRow?.count ?? 0);
+    const total = totalActive + totalCancelled;
+    const churnRate = total > 0 ? ((totalCancelled / total) * 100).toFixed(2) : "0.00";
+
+    // Plan distribution
+    const planDist = await db
+      .select({
+        plan: patientSubscriptionsTable.planName,
+        count: count(),
+      })
+      .from(patientSubscriptionsTable)
+      .where(eq(patientSubscriptionsTable.status, "ACTIVE"))
+      .groupBy(patientSubscriptionsTable.planName);
+
+    const planDistWithPct = planDist.map((p) => ({
+      plan: p.plan,
+      count: Number(p.count),
+      percentage: totalActive > 0 ? ((Number(p.count) / totalActive) * 100).toFixed(1) : "0",
+    }));
+
+    res.json({
+      mrr: Number(mrrRow?.mrr ?? 0),
+      active_subscribers: totalActive,
+      churn_rate: parseFloat(churnRate),
+      renewals_this_month: Number(renewalsRow?.count ?? 0),
+      plan_distribution: planDistWithPct,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /subscriptions  (paginated subscriber list)
+router.get("/subscriptions", async (req, res, next) => {
+  try {
+    const { page, limit } = parsePagination(req.query as Record<string, string>);
+    const search = (req.query.search as string | undefined) ?? "";
+    const status = (req.query.status as string | undefined) ?? "";
+
+    const conditions = [];
+    if (status) conditions.push(eq(patientSubscriptionsTable.status, status as any));
+    if (search) {
+      conditions.push(
+        sql`(${patientSubscriptionsTable.patientName} ILIKE ${"%" + search + "%"} OR ${patientSubscriptionsTable.planName} ILIKE ${"%" + search + "%"})`,
+      );
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalRow] = await db
+      .select({ count: count() })
+      .from(patientSubscriptionsTable)
+      .where(where);
+
+    const total = Number(totalRow?.count ?? 0);
+    const totalPages = Math.ceil(total / limit);
+    const offset = (page - 1) * limit;
+
+    const rows = await db
+      .select({
+        id: patientSubscriptionsTable.id,
+        patientId: patientSubscriptionsTable.patientId,
+        patient_name: patientSubscriptionsTable.patientName,
+        plan: patientSubscriptionsTable.planName,
+        amount: patientSubscriptionsTable.amount,
+        status: patientSubscriptionsTable.status,
+        start_date: patientSubscriptionsTable.startDate,
+        end_date: patientSubscriptionsTable.endDate,
+      })
+      .from(patientSubscriptionsTable)
+      .where(where)
+      .orderBy(sql`${patientSubscriptionsTable.createdAt} DESC`)
+      .limit(limit)
+      .offset(offset);
+
+    const now = new Date();
+    const data = rows.map((r) => ({
+      ...r,
+      amount: parseFloat(r.amount),
+      days_until_renewal:
+        r.status === "ACTIVE" && r.end_date
+          ? Math.max(0, Math.ceil((new Date(r.end_date).getTime() - now.getTime()) / 86400000))
+          : null,
+    }));
+
+    res.json({ data, total, page, limit, totalPages });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

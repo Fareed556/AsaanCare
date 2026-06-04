@@ -5,6 +5,7 @@ import {
   patientsTable, appointmentsTable, paymentsTable, refundsTable,
   doctorPayoutsTable, supportTicketsTable, ticketRepliesTable,
   reviewsTable, clinicsTable, notificationsTable,
+  subscriptionPlansTable, patientSubscriptionsTable,
 } from "./lib/db";
 import { sql } from "drizzle-orm";
 
@@ -15,7 +16,8 @@ async function main() {
   await db.execute(sql`
     TRUNCATE TABLE notifications, audit_logs, ticket_replies, support_tickets,
     reviews, doctor_payouts, refunds, payments, appointments,
-    doctor_clinics, clinics, patients, doctor_verifications, doctors,
+    doctor_clinics, clinics, patient_subscriptions, subscription_plans,
+    patients, doctor_verifications, doctors,
     admin_users, users
     RESTART IDENTITY CASCADE
   `);
@@ -230,6 +232,68 @@ async function main() {
     ]);
   }
   console.log("✓ Created notifications");
+
+  // ── SUBSCRIPTION PLANS ────────────────────────────────────────────────────
+  const planRows = await db.insert(subscriptionPlansTable).values([
+    {
+      name: "Free",
+      price: "0",
+      billingCycle: "monthly",
+      features: { video_consults: 0, lab_tests: 0, priority_appointments: 0, family_members: 1, health_locker_storage: "100 MB", dedicated_support: false },
+      isActive: true,
+    },
+    {
+      name: "Basic",
+      price: "1499",
+      billingCycle: "monthly",
+      features: { video_consults: 4, lab_tests: 10, priority_appointments: 1, family_members: 2, health_locker_storage: "1 GB", dedicated_support: false },
+      isActive: true,
+    },
+    {
+      name: "Standard",
+      price: "2999",
+      billingCycle: "monthly",
+      features: { video_consults: 10, lab_tests: 20, priority_appointments: 2, family_members: 3, health_locker_storage: "20 GB", dedicated_support: true },
+      isActive: true,
+    },
+    {
+      name: "Family",
+      price: "4999",
+      billingCycle: "monthly",
+      features: { video_consults: "Unlimited", lab_tests: "Unlimited", priority_appointments: "Unlimited", family_members: "Up to 6", health_locker_storage: "50 GB", dedicated_support: true },
+      isActive: true,
+    },
+  ]).returning();
+
+  // Assign subscriptions to patients
+  const planAssignment = [
+    { planIdx: 0, count: 20 },  // 20 on Free
+    { planIdx: 1, count: 15 },  // 15 on Basic
+    { planIdx: 2, count: 10 },  // 10 on Standard
+    { planIdx: 3, count: 5 },   //  5 on Family
+  ];
+
+  let patientOffset = 0;
+  for (const { planIdx, count } of planAssignment) {
+    const plan = planRows[planIdx];
+    for (let i = 0; i < count && patientOffset < patientRows.length; i++, patientOffset++) {
+      const pat = patientRows[patientOffset];
+      const startDate = new Date(Date.now() - Math.floor(Math.random() * 30) * 86400000);
+      const endDate = new Date(startDate.getTime() + 30 * 86400000);
+      const status = i < count - 2 ? "ACTIVE" : (i === count - 2 ? "CANCELLED" : "EXPIRED");
+      await db.insert(patientSubscriptionsTable).values({
+        patientId: pat.id,
+        patientName: pat.fullName,
+        planId: plan.id,
+        planName: plan.name,
+        amount: plan.price,
+        status: status as any,
+        startDate,
+        endDate,
+      });
+    }
+  }
+  console.log("✓ Created subscription plans + 50 patient subscriptions");
 
   console.log("\n✅ Seed complete! Login credentials:");
   console.log("   Super Admin: superadmin@sahatghar.pk / SahatGhar@2025!");

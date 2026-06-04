@@ -93,7 +93,7 @@ export default function Payments() {
       p.amount,
       p.gateway || "",
       p.status,
-      new Date(p.created_at).toLocaleDateString("en-PK"),
+      new Date(p.date).toLocaleDateString("en-PK"),
     ]);
     const csv = [headers.join(","), ...rows.map((r: any[]) => r.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -148,7 +148,7 @@ export default function Payments() {
                   </span>
                 </td>
                 <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
-                <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.created_at).toLocaleDateString("en-PK")}</td>
+                <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.date).toLocaleDateString("en-PK")}</td>
                 <td className="px-4 py-3 text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -178,7 +178,7 @@ export default function Payments() {
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem onClick={() => {
-                        const text = `Txn: ${p.id}\nPatient: ${p.patient_name}\nAmount: PKR ${p.amount?.toLocaleString()}\nStatus: ${p.status}\nDate: ${new Date(p.created_at).toLocaleDateString("en-PK")}`;
+                        const text = `Txn: ${p.id}\nPatient: ${p.patient_name}\nAmount: PKR ${p.amount?.toLocaleString()}\nStatus: ${p.status}\nDate: ${new Date(p.date).toLocaleDateString("en-PK")}`;
                         const blob = new Blob([text], { type: "text/plain" });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement("a"); a.href = url; a.download = `receipt_${p.id}.txt`; a.click();
