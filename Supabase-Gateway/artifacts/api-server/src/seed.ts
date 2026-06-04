@@ -1,4 +1,4 @@
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { db, pool } from "./lib/db";
 import {
   usersTable, adminUsersTable, doctorsTable, doctorVerificationsTable,
