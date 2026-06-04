@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -10,7 +11,7 @@ export const dayOfWeekEnum = pgEnum("day_of_week", [
 export const consultationTypeEnum = pgEnum("consultation_type", ["ONLINE", "CLINIC", "BOTH"]);
 
 export const doctorAvailabilityTable = pgTable("doctor_availability", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   doctorId: text("doctor_id").notNull().references(() => doctorsTable.id, { onDelete: "cascade" }),
   dayOfWeek: dayOfWeekEnum("day_of_week").notNull(),
   startTime: text("start_time").notNull(),

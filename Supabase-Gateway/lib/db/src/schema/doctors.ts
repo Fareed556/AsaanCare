@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, integer, boolean, timestamp, numeric, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -16,7 +17,7 @@ export const profileStatusEnum = pgEnum("profile_status", ["INCOMPLETE", "COMPLE
 export const genderEnum = pgEnum("gender", ["MALE", "FEMALE", "OTHER"]);
 
 export const doctorsTable = pgTable("doctors", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   userId: text("user_id").references(() => usersTable.id, { onDelete: "set null" }),
   fullName: text("full_name").notNull(),
   phone: text("phone"),
@@ -44,7 +45,7 @@ export const doctorsTable = pgTable("doctors", {
 });
 
 export const doctorVerificationsTable = pgTable("doctor_verifications", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   doctorId: text("doctor_id").notNull().references(() => doctorsTable.id, { onDelete: "cascade" }),
   pmdcNumber: text("pmdc_number"),
   cnicFrontUrl: text("cnic_front_url"),

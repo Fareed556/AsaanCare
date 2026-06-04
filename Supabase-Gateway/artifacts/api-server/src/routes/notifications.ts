@@ -1,39 +1,50 @@
 import { Router } from "express";
+import { eq, and, desc, count } from "drizzle-orm";
+import { db, notificationsTable } from "../lib/db";
+import { requireAuth } from "../middlewares/auth";
 import { paginate, parsePagination } from "../lib/pagination";
 
 const router = Router();
+router.use(requireAuth);
 
-const notifications = [
-  { id: "n1", user_id: "admin", title: "New Doctor Registration", message: "Dr. Hassan Malik has submitted verification documents.", type: "VERIFICATION", channel: "IN_APP", status: "READ", entity_type: "Doctor", entity_id: "d8", created_at: "2025-05-22T09:00:00Z" },
-  { id: "n2", user_id: "admin", title: "Refund Request", message: "Patient Ayesha Khan has requested a refund for appointment #apt4.", type: "PAYMENT", channel: "IN_APP", status: "PENDING", entity_type: "Refund", entity_id: "ref1", created_at: "2025-05-22T08:30:00Z" },
-  { id: "n3", user_id: "admin", title: "High Priority Ticket", message: "Ticket TKT-2025-1847 has been escalated.", type: "SUPPORT", channel: "IN_APP", status: "PENDING", entity_type: "Ticket", entity_id: "t7", created_at: "2025-05-22T07:00:00Z" },
-  { id: "n4", user_id: "admin", title: "Payout Request", message: "Dr. Ayesha Noor has requested a payout of PKR 45,000.", type: "PAYOUT", channel: "IN_APP", status: "PENDING", entity_type: "Payout", entity_id: "po1", created_at: "2025-05-22T08:00:00Z" },
-  { id: "n5", user_id: "admin", title: "Review Reported", message: "A review has been reported for Dr. Usman Javed.", type: "REVIEW", channel: "IN_APP", status: "READ", entity_type: "Review", entity_id: "rv4", created_at: "2025-05-21T13:30:00Z" },
-  { id: "n6", user_id: "admin", title: "New Doctor Registration", message: "Dr. Usman Tariq has submitted verification documents.", type: "VERIFICATION", channel: "IN_APP", status: "PENDING", entity_type: "Doctor", entity_id: "d2", created_at: "2025-05-21T10:00:00Z" },
-];
-
-router.get("/notifications", (req, res) => {
-  let filtered = [...notifications];
+router.get("/notifications", async (req, res): Promise<void> => {
   const q = req.query as Record<string, string>;
-  if (q.status && q.status !== "all") filtered = filtered.filter(n => n.status === q.status);
-  if (q.type) filtered = filtered.filter(n => n.type === q.type);
-  const result = paginate(filtered, parsePagination(q));
+  const userId = req.admin!.userId;
+  const conds: any[] = [eq(notificationsTable.userId, userId)];
+  if (q.status && q.status !== "all") conds.push(eq(notificationsTable.status, q.status as any));
+  if (q.type) conds.push(eq(notificationsTable.type, q.type as any));
+  const all = await db.select().from(notificationsTable).where(and(...conds)).orderBy(desc(notificationsTable.createdAt));
+  const adminNotifs = await db.select().from(notificationsTable)
+    .where(and(eq(notificationsTable.userId, "admin"), ...conds.slice(1)))
+    .orderBy(desc(notificationsTable.createdAt));
+  const combined = [...all, ...adminNotifs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const result = paginate(combined, parsePagination(q));
   res.json(result);
 });
 
-router.get("/notifications/unread-count", (req, res) => {
-  res.json({ count: notifications.filter(n => n.status === "PENDING").length });
+router.get("/notifications/unread-count", async (req, res) => {
+  const userId = req.admin!.userId;
+  const userCount = await db.select({ n: count() }).from(notificationsTable)
+    .where(and(eq(notificationsTable.userId, userId), eq(notificationsTable.status, "PENDING")));
+  const adminCount = await db.select({ n: count() }).from(notificationsTable)
+    .where(and(eq(notificationsTable.userId, "admin"), eq(notificationsTable.status, "PENDING")));
+  res.json({ count: (userCount[0]?.n ?? 0) + (adminCount[0]?.n ?? 0) });
 });
 
-router.patch("/notifications/:id/read", (req, res): void => {
-  const n = notifications.find(n => n.id === req.params.id);
-  if (!n) { res.status(404).json({ error: "Notification not found" }); return; }
-  n.status = "READ";
-  res.json(n);
+router.patch("/notifications/:id/read", async (req, res): Promise<void> => {
+  const notif = await db.select().from(notificationsTable).where(eq(notificationsTable.id, req.params.id)).limit(1);
+  if (!notif.length) { res.status(404).json({ error: "Notification not found" }); return; }
+  await db.update(notificationsTable).set({ status: "READ", readAt: new Date() }).where(eq(notificationsTable.id, req.params.id));
+  const updated = await db.select().from(notificationsTable).where(eq(notificationsTable.id, req.params.id)).limit(1);
+  res.json(updated[0]);
 });
 
-router.post("/notifications/mark-all-read", (req, res) => {
-  notifications.forEach(n => { n.status = "READ"; });
+router.post("/notifications/mark-all-read", async (req, res) => {
+  const userId = req.admin!.userId;
+  await db.update(notificationsTable).set({ status: "READ", readAt: new Date() })
+    .where(and(eq(notificationsTable.userId, userId), eq(notificationsTable.status, "PENDING")));
+  await db.update(notificationsTable).set({ status: "READ", readAt: new Date() })
+    .where(and(eq(notificationsTable.userId, "admin"), eq(notificationsTable.status, "PENDING")));
   res.json({ success: true });
 });
 

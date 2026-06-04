@@ -1,48 +1,55 @@
 import { Router } from "express";
+import { eq, and, desc, ilike } from "drizzle-orm";
+import { db, doctorPayoutsTable } from "../lib/db";
+import { requireAuth, requireRole, FINANCE_AND_ABOVE } from "../middlewares/auth";
 import { paginate, parsePagination } from "../lib/pagination";
+import { writeAudit } from "../lib/audit";
 
 const router = Router();
+router.use(requireAuth);
 
-const payouts = [
-  { id: "po1", doctor_id: "d1", doctor_name: "Dr. Ayesha Noor", amount: 45000, status: "PENDING", bank_name: "HBL", account_title: "Ayesha Noor", account_number: "01234567890", iban: "PK36HABB0000000123456789", wallet_provider: null, wallet_number: null, requested_at: "2025-05-22T08:00:00Z", processed_at: null, admin_notes: null },
-  { id: "po2", doctor_id: "d4", doctor_name: "Dr. Bilal Ahmad", amount: 32000, status: "APPROVED", bank_name: "MCB", account_title: "Bilal Ahmad", account_number: "0987654321", iban: "PK36MCBL0000000987654321", wallet_provider: null, wallet_number: null, requested_at: "2025-05-20T10:00:00Z", processed_at: null, admin_notes: "Approved by finance team" },
-  { id: "po3", doctor_id: "d9", doctor_name: "Dr. Faisal Mahmood", amount: 78000, status: "PAID", bank_name: null, account_title: null, account_number: null, iban: null, wallet_provider: "JazzCash", wallet_number: "0300-1234567", requested_at: "2025-05-18T09:00:00Z", processed_at: "2025-05-19T14:00:00Z", admin_notes: "Paid via JazzCash" },
-  { id: "po4", doctor_id: "d5", doctor_name: "Dr. Sana Khan", amount: 22000, status: "REJECTED", bank_name: "UBL", account_title: "Sana Khan", account_number: "1122334455", iban: "PK36UNIL0000001122334455", wallet_provider: null, wallet_number: null, requested_at: "2025-05-15T11:00:00Z", processed_at: null, admin_notes: "IBAN mismatch" },
-  { id: "po5", doctor_id: "d6", doctor_name: "Dr. Farhan Malik", amount: 15000, status: "PENDING", bank_name: "Meezan", account_title: "Farhan Malik", account_number: "5544332211", iban: "PK36MEZN0000005544332211", wallet_provider: null, wallet_number: null, requested_at: "2025-05-23T07:00:00Z", processed_at: null, admin_notes: null },
-];
-
-router.get("/payouts", (req, res) => {
-  let filtered = [...payouts];
+router.get("/payouts", async (req, res): Promise<void> => {
   const q = req.query as Record<string, string>;
-  if (q.status && q.status !== "all") filtered = filtered.filter(p => p.status === q.status);
-  if (q.doctor_id) filtered = filtered.filter(p => p.doctor_id === q.doctor_id);
-  const result = paginate(filtered, parsePagination(q));
+  const conds: any[] = [];
+  if (q.status && q.status !== "all") conds.push(eq(doctorPayoutsTable.status, q.status as any));
+  if (q.doctorId) conds.push(eq(doctorPayoutsTable.doctorId, q.doctorId));
+  if (q.search) conds.push(ilike(doctorPayoutsTable.doctorName, `%${q.search}%`));
+  const all = conds.length
+    ? await db.select().from(doctorPayoutsTable).where(and(...conds)).orderBy(desc(doctorPayoutsTable.requestedAt))
+    : await db.select().from(doctorPayoutsTable).orderBy(desc(doctorPayoutsTable.requestedAt));
+  const result = paginate(all, parsePagination(q));
   res.json(result);
 });
 
-router.get("/payouts/stats", (req, res) => {
+router.get("/payouts/stats", async (_req, res) => {
+  const all = await db.select({ status: doctorPayoutsTable.status, amount: doctorPayoutsTable.amount }).from(doctorPayoutsTable);
+  const sum = (filter: (p: typeof all[0]) => boolean) =>
+    all.filter(filter).reduce((s, p) => s + parseFloat(p.amount ?? "0"), 0);
   res.json({
-    pending: payouts.filter(p => p.status === "PENDING").length,
-    approved: payouts.filter(p => p.status === "APPROVED").length,
-    paid: payouts.filter(p => p.status === "PAID").length,
-    rejected: payouts.filter(p => p.status === "REJECTED").length,
-    total_pending_amount: payouts.filter(p => ["PENDING","APPROVED"].includes(p.status)).reduce((s, p) => s + p.amount, 0),
+    pending: all.filter(p => p.status === "PENDING").length,
+    approved: all.filter(p => p.status === "APPROVED").length,
+    paid: all.filter(p => p.status === "PAID").length,
+    rejected: all.filter(p => p.status === "REJECTED").length,
+    total_pending_amount: sum(p => p.status === "PENDING" || p.status === "APPROVED"),
   });
 });
 
-router.get("/payouts/:id", (req, res): void => {
-  const payout = payouts.find(p => p.id === req.params.id);
-  if (!payout) { res.status(404).json({ error: "Payout not found" }); return; }
-  res.json(payout);
+router.get("/payouts/:id", async (req, res): Promise<void> => {
+  const payout = await db.select().from(doctorPayoutsTable).where(eq(doctorPayoutsTable.id, (req.params.id as string))).limit(1);
+  if (!payout.length) { res.status(404).json({ error: "Payout not found" }); return; }
+  res.json(payout[0]);
 });
 
-router.patch("/payouts/:id", (req, res): void => {
-  const payout = payouts.find(p => p.id === req.params.id);
-  if (!payout) { res.status(404).json({ error: "Payout not found" }); return; }
-  const now = new Date().toISOString();
-  Object.assign(payout, req.body);
-  if (req.body.status === "PAID") payout.processed_at = now;
-  res.json(payout);
+router.patch("/payouts/:id", requireRole(...FINANCE_AND_ABOVE), async (req, res): Promise<void> => {
+  const { status, adminNotes } = req.body;
+  const existing = await db.select().from(doctorPayoutsTable).where(eq(doctorPayoutsTable.id, (req.params.id as string))).limit(1);
+  if (!existing.length) { res.status(404).json({ error: "Payout not found" }); return; }
+  const update: any = { status, adminNotes: adminNotes ?? existing[0].adminNotes, processedByAdminId: req.admin!.adminId, updatedAt: new Date() };
+  if (status === "PAID") update.processedAt = new Date();
+  await db.update(doctorPayoutsTable).set(update).where(eq(doctorPayoutsTable.id, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "PAYOUT_STATUS_CHANGED", entityType: "DoctorPayout", entityId: (req.params.id as string), oldValue: { status: existing[0].status }, newValue: { status } });
+  const updated = await db.select().from(doctorPayoutsTable).where(eq(doctorPayoutsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
 });
 
 export default router;

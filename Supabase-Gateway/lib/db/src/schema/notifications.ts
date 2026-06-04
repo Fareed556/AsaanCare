@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -27,7 +28,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
 ]);
 
 export const notificationsTable = pgTable("notifications", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   userId: text("user_id").notNull(),
   title: text("title").notNull(),
   message: text("message").notNull(),

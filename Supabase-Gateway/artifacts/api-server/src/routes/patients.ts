@@ -1,56 +1,56 @@
 import { Router } from "express";
+import { eq, ilike, and, or, desc } from "drizzle-orm";
+import { db, patientsTable } from "../lib/db";
+import { requireAuth, requireRole } from "../middlewares/auth";
+import { paginate, parsePagination } from "../lib/pagination";
+import { writeAudit } from "../lib/audit";
 
 const router = Router();
+router.use(requireAuth);
 
-const patients = [
-  { id: "p1", name: "Ayesha Khan", phone: "0321-1234567", email: "ayesha.khan@gmail.com", city: "Lahore", status: "active", joined_date: "2025-01-12", avatar_url: null, total_bookings: 24, total_spent: 18450, upcoming_bookings: 2 },
-  { id: "p2", name: "Muhammad Ali", phone: "0300-9876543", email: "m.ali@gmail.com", city: "Karachi", status: "active", joined_date: "2025-02-05", avatar_url: null, total_bookings: 17, total_spent: 12300, upcoming_bookings: 1 },
-  { id: "p3", name: "Fatima Noor", phone: "0315-7634321", email: "fatima@gmail.com", city: "Islamabad", status: "active", joined_date: "2025-03-18", avatar_url: null, total_bookings: 9, total_spent: 6500, upcoming_bookings: 0 },
-  { id: "p4", name: "Usman Javed", phone: "0333-2346678", email: "usman.j@gmail.com", city: "Rawalpindi", status: "active", joined_date: "2025-02-01", avatar_url: null, total_bookings: 33, total_spent: 24100, upcoming_bookings: 3 },
-  { id: "p5", name: "Zainab Hassan", phone: "0322-8756342", email: "zainab@gmail.com", city: "Multan", status: "blocked", joined_date: "2025-01-21", avatar_url: null, total_bookings: 4, total_spent: 2800, upcoming_bookings: 0 },
-  { id: "p6", name: "Bilal Ahmed", phone: "0308-1112233", email: "bilal@gmail.com", city: "Peshawar", status: "active", joined_date: "2025-04-30", avatar_url: null, total_bookings: 6, total_spent: 4200, upcoming_bookings: 1 },
-  { id: "p7", name: "Sara Malik", phone: "0312-5674321", email: "sara.malik@gmail.com", city: "Lahore", status: "active", joined_date: "2025-03-10", avatar_url: null, total_bookings: 11, total_spent: 8900, upcoming_bookings: 0 },
-  { id: "p8", name: "Hamza Hassan", phone: "0321-9987654", email: "hamza@gmail.com", city: "Karachi", status: "active", joined_date: "2025-02-28", avatar_url: null, total_bookings: 8, total_spent: 5600, upcoming_bookings: 2 },
-];
+router.get("/patients", async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const conditions: any[] = [];
+  if (q.status && q.status !== "all") conditions.push(eq(patientsTable.status, q.status as any));
+  if (q.city) conditions.push(ilike(patientsTable.city, `%${q.city}%`));
+  if (q.search) conditions.push(or(
+    ilike(patientsTable.fullName, `%${q.search}%`),
+    ilike(patientsTable.email, `%${q.search}%`),
+    ilike(patientsTable.phone, `%${q.search}%`),
+  ));
 
-router.get("/patients", (req, res) => {
-  let filtered = [...patients];
-  const { status, city, search, page = "1", limit = "10" } = req.query as Record<string, string>;
+  const all = conditions.length
+    ? await db.select().from(patientsTable).where(and(...conditions)).orderBy(desc(patientsTable.createdAt))
+    : await db.select().from(patientsTable).orderBy(desc(patientsTable.createdAt));
 
-  if (status && status !== "all") filtered = filtered.filter(p => p.status === status);
-  if (city) filtered = filtered.filter(p => p.city.toLowerCase().includes(city.toLowerCase()));
-  if (search) filtered = filtered.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.phone.includes(search) ||
-    p.city.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const pageNum = parseInt(page);
-  const limitNum = parseInt(limit);
-  const total = filtered.length;
-  const data = filtered.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-
-  res.json({ data, total, page: pageNum, limit: limitNum });
+  const { data, total, page, limit, totalPages } = paginate(all, parsePagination(q));
+  res.json({ data, total, page, limit, totalPages });
 });
 
-router.get("/patients/:id", (req, res): void => {
-  const patient = patients.find(p => p.id === req.params.id);
-  if (!patient) { res.status(404).json({ error: "Patient not found" }); return; }
-  res.json(patient);
+router.get("/patients/stats", async (_req, res) => {
+  const all = await db.select({ status: patientsTable.status }).from(patientsTable);
+  res.json({
+    total: all.length,
+    active: all.filter(p => p.status === "ACTIVE").length,
+    inactive: all.filter(p => p.status === "INACTIVE").length,
+    suspended: all.filter(p => p.status === "SUSPENDED").length,
+  });
 });
 
-router.patch("/patients/:id", (req, res): void => {
-  const patient = patients.find(p => p.id === req.params.id);
-  if (!patient) { res.status(404).json({ error: "Patient not found" }); return; }
-  Object.assign(patient, req.body);
-  res.json(patient);
+router.get("/patients/:id", async (req, res): Promise<void> => {
+  const patient = await db.select().from(patientsTable).where(eq(patientsTable.id, (req.params.id as string))).limit(1);
+  if (!patient.length) { res.status(404).json({ error: "Patient not found" }); return; }
+  res.json(patient[0]);
 });
 
-router.patch("/patients/:id/block", (req, res): void => {
-  const patient = patients.find(p => p.id === req.params.id);
-  if (!patient) { res.status(404).json({ error: "Patient not found" }); return; }
-  patient.status = req.body.blocked ? "blocked" : "active";
-  res.json(patient);
+router.patch("/patients/:id/status", requireRole("SUPER_ADMIN", "ADMIN", "SUPPORT"), async (req, res): Promise<void> => {
+  const { status } = req.body;
+  const existing = await db.select().from(patientsTable).where(eq(patientsTable.id, (req.params.id as string))).limit(1);
+  if (!existing.length) { res.status(404).json({ error: "Patient not found" }); return; }
+  await db.update(patientsTable).set({ status, updatedAt: new Date() }).where(eq(patientsTable.id, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "PATIENT_STATUS_CHANGED", entityType: "Patient", entityId: (req.params.id as string), oldValue: { status: existing[0].status }, newValue: { status } });
+  const updated = await db.select().from(patientsTable).where(eq(patientsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
 });
 
 export default router;

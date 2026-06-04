@@ -1,45 +1,52 @@
 import { Router } from "express";
+import { eq, and, desc, ilike, or } from "drizzle-orm";
+import { db, refundsTable } from "../lib/db";
+import { requireAuth, requireRole, FINANCE_AND_ABOVE } from "../middlewares/auth";
 import { paginate, parsePagination } from "../lib/pagination";
+import { writeAudit } from "../lib/audit";
 
 const router = Router();
+router.use(requireAuth);
 
-const refunds = [
-  { id: "ref1", appointment_id: "apt4", patient_name: "Hamza Hassan", doctor_name: "Dr. Maryam Siddiqui", amount: 1200, reason: "Doctor unavailable", status: "REQUESTED", requested_at: "2025-05-21T22:00:00Z", payment_method: "Raast", updated_at: "2025-05-21T22:00:00Z", admin_notes: null },
-  { id: "ref2", appointment_id: "apt3", patient_name: "Sana Imran", doctor_name: "Dr. Usman Javed", amount: 800, reason: "Doctor no-show", status: "APPROVED", requested_at: "2025-05-22T10:00:00Z", payment_method: "JazzCash", updated_at: "2025-05-22T11:00:00Z", admin_notes: "Approved after verification" },
-  { id: "ref3", appointment_id: "apt7", patient_name: "Fatima Noor", doctor_name: "Dr. Ayesha Noor", amount: 1500, reason: "Doctor was late", status: "REJECTED", requested_at: "2025-05-21T15:00:00Z", payment_method: "JazzCash", updated_at: "2025-05-21T16:00:00Z", admin_notes: "Partial service was rendered" },
-  { id: "ref4", appointment_id: "apt1", patient_name: "Ayesha Khan", doctor_name: "Dr. Hina Fatima", amount: 1300, reason: "Changed mind", status: "PROCESSED", requested_at: "2025-05-20T08:00:00Z", payment_method: "JazzCash", updated_at: "2025-05-20T12:00:00Z", admin_notes: "Processed via JazzCash portal" },
-  { id: "ref5", appointment_id: "apt2", patient_name: "Ali Raza", doctor_name: "Dr. Faisal Mahmood", amount: 900, reason: "Technical issue", status: "REQUESTED", requested_at: "2025-05-23T09:00:00Z", payment_method: "Easypaisa", updated_at: "2025-05-23T09:00:00Z", admin_notes: null },
-];
-
-router.get("/refunds", (req, res) => {
-  let filtered = [...refunds];
+router.get("/refunds", async (req, res): Promise<void> => {
   const q = req.query as Record<string, string>;
-  if (q.status && q.status !== "all") filtered = filtered.filter(r => r.status === q.status);
-  const result = paginate(filtered, parsePagination(q));
+  const conds: any[] = [];
+  if (q.status && q.status !== "all") conds.push(eq(refundsTable.status, q.status as any));
+  if (q.search) conds.push(or(ilike(refundsTable.requestedByName, `%${q.search}%`), ilike(refundsTable.reason, `%${q.search}%`)));
+  const all = conds.length
+    ? await db.select().from(refundsTable).where(and(...conds)).orderBy(desc(refundsTable.createdAt))
+    : await db.select().from(refundsTable).orderBy(desc(refundsTable.createdAt));
+  const result = paginate(all, parsePagination(q));
   res.json(result);
 });
 
-router.get("/refunds/stats", (req, res) => {
+router.get("/refunds/stats", async (_req, res) => {
+  const all = await db.select({ status: refundsTable.status }).from(refundsTable);
   res.json({
-    pending: refunds.filter(r => r.status === "REQUESTED").length,
-    approved: refunds.filter(r => r.status === "APPROVED").length,
-    processed: refunds.filter(r => r.status === "PROCESSED").length,
-    rejected: refunds.filter(r => r.status === "REJECTED").length,
-    total_amount: refunds.reduce((s, r) => s + r.amount, 0),
+    total: all.length,
+    pending: all.filter(r => r.status === "REQUESTED").length,
+    approved: all.filter(r => r.status === "APPROVED").length,
+    processed: all.filter(r => r.status === "PROCESSED").length,
+    rejected: all.filter(r => r.status === "REJECTED").length,
   });
 });
 
-router.get("/refunds/:id", (req, res): void => {
-  const refund = refunds.find(r => r.id === req.params.id);
-  if (!refund) { res.status(404).json({ error: "Refund not found" }); return; }
-  res.json(refund);
+router.get("/refunds/:id", async (req, res): Promise<void> => {
+  const refund = await db.select().from(refundsTable).where(eq(refundsTable.id, (req.params.id as string))).limit(1);
+  if (!refund.length) { res.status(404).json({ error: "Refund not found" }); return; }
+  res.json(refund[0]);
 });
 
-router.patch("/refunds/:id", (req, res): void => {
-  const refund = refunds.find(r => r.id === req.params.id);
-  if (!refund) { res.status(404).json({ error: "Refund not found" }); return; }
-  Object.assign(refund, req.body, { updated_at: new Date().toISOString() });
-  res.json(refund);
+router.patch("/refunds/:id", requireRole(...FINANCE_AND_ABOVE), async (req, res): Promise<void> => {
+  const { status, adminNotes } = req.body;
+  const existing = await db.select().from(refundsTable).where(eq(refundsTable.id, (req.params.id as string))).limit(1);
+  if (!existing.length) { res.status(404).json({ error: "Refund not found" }); return; }
+  await db.update(refundsTable)
+    .set({ status, adminNotes: adminNotes ?? existing[0].adminNotes, reviewedByAdminId: req.admin!.adminId, updatedAt: new Date() })
+    .where(eq(refundsTable.id, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "REFUND_STATUS_CHANGED", entityType: "Refund", entityId: (req.params.id as string), oldValue: { status: existing[0].status }, newValue: { status } });
+  const updated = await db.select().from(refundsTable).where(eq(refundsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
 });
 
 export default router;

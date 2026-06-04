@@ -1,85 +1,100 @@
 import { Router } from "express";
+import { eq, ilike, and, or, sql, desc } from "drizzle-orm";
+import { db, doctorsTable, doctorVerificationsTable } from "../lib/db";
+import { requireAuth, requireRole, VERIFIER_AND_ABOVE, ALL_ROLES } from "../middlewares/auth";
+import { paginate, parsePagination } from "../lib/pagination";
+import { writeAudit } from "../lib/audit";
 
 const router = Router();
+router.use(requireAuth);
 
-const doctors = [
-  { id: "d1", name: "Dr. Ayesha Noor", specialty: "Cardiology", city: "Lahore", pmdc_number: "79484-P", status: "verified", joined_date: "2025-05-18", avatar_url: null, rating: 4.8, appointments_completed: 156, no_shows: 12, avg_response_time: "18 mins", featured: true, fee: 1500 },
-  { id: "d2", name: "Dr. Usman Tariq", specialty: "General Medicine", city: "Karachi", pmdc_number: "454321-P", status: "pending", joined_date: "2025-05-20", avatar_url: null, rating: null, appointments_completed: 0, no_shows: 0, avg_response_time: null, featured: false, fee: 800 },
-  { id: "d3", name: "Dr. Hina Fatima", specialty: "Dermatology", city: "Islamabad", pmdc_number: "112233-P", status: "pending", joined_date: "2025-05-21", avatar_url: null, rating: null, appointments_completed: 0, no_shows: 0, avg_response_time: null, featured: false, fee: 1200 },
-  { id: "d4", name: "Dr. Bilal Ahmad", specialty: "Orthopedics", city: "Rawalpindi", pmdc_number: "334400-P", status: "verified", joined_date: "2025-05-17", avatar_url: null, rating: 4.6, appointments_completed: 89, no_shows: 5, avg_response_time: "22 mins", featured: false, fee: 2000 },
-  { id: "d5", name: "Dr. Sana Khan", specialty: "Pediatrics", city: "Multan", pmdc_number: "556677-P", status: "verified", joined_date: "2025-05-15", avatar_url: null, rating: 4.7, appointments_completed: 203, no_shows: 8, avg_response_time: "15 mins", featured: true, fee: 1000 },
-  { id: "d6", name: "Dr. Farhan Malik", specialty: "ENT", city: "Peshawar", pmdc_number: "667788-P", status: "verified", joined_date: "2025-05-12", avatar_url: null, rating: 4.5, appointments_completed: 134, no_shows: 15, avg_response_time: "25 mins", featured: false, fee: 1300 },
-  { id: "d7", name: "Dr. Maryam Siddiqui", specialty: "Gynecology", city: "Lahore", pmdc_number: "778899-P", status: "suspended", joined_date: "2025-05-10", avatar_url: null, rating: 3.2, appointments_completed: 45, no_shows: 22, avg_response_time: "45 mins", featured: false, fee: 1500 },
-  { id: "d8", name: "Dr. Hassan Malik", specialty: "Neurology", city: "Karachi", pmdc_number: "889900-P", status: "pending", joined_date: "2025-05-21", avatar_url: null, rating: null, appointments_completed: 0, no_shows: 0, avg_response_time: null, featured: false, fee: 2500 },
-  { id: "d9", name: "Dr. Faisal Mahmood", specialty: "General Medicine", city: "Lahore", pmdc_number: "990011-P", status: "verified", joined_date: "2025-05-08", avatar_url: null, rating: 4.9, appointments_completed: 312, no_shows: 3, avg_response_time: "12 mins", featured: true, fee: 900 },
-  { id: "d10", name: "Dr. Fatima Noor", specialty: "Psychiatry", city: "Islamabad", pmdc_number: "112244-P", status: "verified", joined_date: "2025-05-14", avatar_url: null, rating: 4.7, appointments_completed: 178, no_shows: 9, avg_response_time: "20 mins", featured: false, fee: 1800 },
-];
+router.get("/doctors", async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const conditions: any[] = [];
+  if (q.status && q.status !== "all") conditions.push(eq(doctorsTable.verificationStatus, q.status as any));
+  if (q.specialty) conditions.push(ilike(doctorsTable.specialty, `%${q.specialty}%`));
+  if (q.city) conditions.push(ilike(doctorsTable.city, `%${q.city}%`));
+  if (q.search) conditions.push(or(
+    ilike(doctorsTable.fullName, `%${q.search}%`),
+    ilike(doctorsTable.pmdcNumber, `%${q.search}%`),
+    ilike(doctorsTable.specialty, `%${q.search}%`),
+  ));
 
-router.get("/doctors", (req, res) => {
-  let filtered = [...doctors];
-  const { status, specialty, city, search, page = "1", limit = "10" } = req.query as Record<string, string>;
+  const all = conditions.length
+    ? await db.select().from(doctorsTable).where(and(...conditions)).orderBy(desc(doctorsTable.createdAt))
+    : await db.select().from(doctorsTable).orderBy(desc(doctorsTable.createdAt));
 
-  if (status && status !== "all") filtered = filtered.filter(d => d.status === status);
-  if (specialty) filtered = filtered.filter(d => d.specialty.toLowerCase().includes(specialty.toLowerCase()));
-  if (city) filtered = filtered.filter(d => d.city.toLowerCase().includes(city.toLowerCase()));
-  if (search) filtered = filtered.filter(d =>
-    d.name.toLowerCase().includes(search.toLowerCase()) ||
-    d.pmdc_number.toLowerCase().includes(search.toLowerCase()) ||
-    d.specialty.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const pageNum = parseInt(page);
-  const limitNum = parseInt(limit);
-  const total = filtered.length;
-  const data = filtered.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-
-  res.json({ data, total, page: pageNum, limit: limitNum });
+  const { data, total, page, limit, totalPages } = paginate(all, parsePagination(q));
+  res.json({ data, total, page, limit, totalPages });
 });
 
-router.get("/doctors/stats", (req, res) => {
+router.get("/doctors/stats", async (_req, res) => {
+  const all = await db.select({ status: doctorsTable.verificationStatus }).from(doctorsTable);
   res.json({
-    total: 1845,
-    verified: 1256,
-    pending: 412,
-    suspended: 177,
+    total: all.length,
+    verified: all.filter(d => d.status === "VERIFIED").length,
+    pending: all.filter(d => d.status === "PENDING" || d.status === "IN_REVIEW").length,
+    suspended: all.filter(d => d.status === "SUSPENDED").length,
+    rejected: all.filter(d => d.status === "REJECTED").length,
   });
 });
 
-router.get("/doctors/:id", (req, res): void => {
-  const doctor = doctors.find(d => d.id === req.params.id);
-  if (!doctor) { res.status(404).json({ error: "Doctor not found" }); return; }
-  res.json(doctor);
+router.get("/doctors/:id", async (req, res): Promise<void> => {
+  const doctor = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  if (!doctor.length) { res.status(404).json({ error: "Doctor not found" }); return; }
+  res.json(doctor[0]);
 });
 
-router.patch("/doctors/:id", (req, res): void => {
-  const doctor = doctors.find(d => d.id === req.params.id);
-  if (!doctor) { res.status(404).json({ error: "Doctor not found" }); return; }
-  Object.assign(doctor, req.body);
-  res.json(doctor);
+router.patch("/doctors/:id", async (req, res): Promise<void> => {
+  const existing = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  if (!existing.length) { res.status(404).json({ error: "Doctor not found" }); return; }
+  const { id: _id, createdAt: _c, ...allowed } = req.body;
+  const updated = await db.update(doctorsTable).set({ ...allowed, updatedAt: new Date() })
+    .where(eq(doctorsTable.id, (req.params.id as string))).returning();
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "DOCTOR_UPDATED", entityType: "Doctor", entityId: (req.params.id as string) });
+  res.json(updated[0]);
 });
 
-router.patch("/doctors/:id/status", (req, res): void => {
-  const doctor = doctors.find(d => d.id === req.params.id);
-  if (!doctor) { res.status(404).json({ error: "Doctor not found" }); return; }
-  doctor.status = req.body.status;
-  res.json(doctor);
+router.get("/doctors/:id/verification", async (req, res): Promise<void> => {
+  const ver = await db.select().from(doctorVerificationsTable)
+    .where(eq(doctorVerificationsTable.doctorId, (req.params.id as string)))
+    .orderBy(desc(doctorVerificationsTable.createdAt)).limit(1);
+  res.json(ver[0] ?? null);
 });
 
-router.post("/doctors", (req, res) => {
-  const newDoctor = {
-    id: `d${doctors.length + 1}`,
-    ...req.body,
-    status: "pending",
-    joined_date: new Date().toISOString().split("T")[0],
-    rating: null,
-    appointments_completed: 0,
-    no_shows: 0,
-    avg_response_time: null,
-    featured: false,
-    avatar_url: null,
-  };
-  doctors.push(newDoctor);
-  res.status(201).json(newDoctor);
+router.post("/doctors/:id/verification/approve", requireRole(...VERIFIER_AND_ABOVE), async (req, res): Promise<void> => {
+  const doctor = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  if (!doctor.length) { res.status(404).json({ error: "Doctor not found" }); return; }
+  if (!["PENDING", "IN_REVIEW"].includes(doctor[0].verificationStatus)) {
+    res.status(400).json({ error: "Doctor is not in a reviewable state" }); return;
+  }
+  await db.update(doctorsTable).set({ verificationStatus: "VERIFIED", updatedAt: new Date() }).where(eq(doctorsTable.id, (req.params.id as string)));
+  await db.update(doctorVerificationsTable).set({ status: "VERIFIED", reviewedAt: new Date(), reviewedByAdminId: req.admin!.adminId }).where(eq(doctorVerificationsTable.doctorId, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "DOCTOR_APPROVED", entityType: "Doctor", entityId: (req.params.id as string), oldValue: { status: doctor[0].verificationStatus }, newValue: { status: "VERIFIED" } });
+  const updated = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
+});
+
+router.post("/doctors/:id/verification/reject", requireRole(...VERIFIER_AND_ABOVE), async (req, res): Promise<void> => {
+  const doctor = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  if (!doctor.length) { res.status(404).json({ error: "Doctor not found" }); return; }
+  const { reason } = req.body;
+  if (!reason) { res.status(400).json({ error: "Rejection reason required" }); return; }
+  await db.update(doctorsTable).set({ verificationStatus: "REJECTED", updatedAt: new Date() }).where(eq(doctorsTable.id, (req.params.id as string)));
+  await db.update(doctorVerificationsTable).set({ status: "REJECTED", rejectionReason: reason, reviewedAt: new Date(), reviewedByAdminId: req.admin!.adminId }).where(eq(doctorVerificationsTable.doctorId, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "DOCTOR_REJECTED", entityType: "Doctor", entityId: (req.params.id as string), newValue: { status: "REJECTED", reason } });
+  const updated = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
+});
+
+router.patch("/doctors/:id/status", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res): Promise<void> => {
+  const { status } = req.body;
+  const doctor = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  if (!doctor.length) { res.status(404).json({ error: "Doctor not found" }); return; }
+  await db.update(doctorsTable).set({ verificationStatus: status, updatedAt: new Date() }).where(eq(doctorsTable.id, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "DOCTOR_STATUS_CHANGED", entityType: "Doctor", entityId: (req.params.id as string), oldValue: { status: doctor[0].verificationStatus }, newValue: { status } });
+  const updated = await db.select().from(doctorsTable).where(eq(doctorsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
 });
 
 export default router;

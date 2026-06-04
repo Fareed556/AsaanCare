@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, timestamp, numeric, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -36,7 +37,7 @@ export const payoutStatusEnum = pgEnum("payout_status", [
 ]);
 
 export const paymentsTable = pgTable("payments", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   appointmentId: text("appointment_id").references(() => appointmentsTable.id, { onDelete: "set null" }),
   patientId: text("patient_id"),
   patientName: text("patient_name"),
@@ -51,7 +52,7 @@ export const paymentsTable = pgTable("payments", {
 });
 
 export const refundsTable = pgTable("refunds", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   paymentId: text("payment_id").references(() => paymentsTable.id, { onDelete: "set null" }),
   appointmentId: text("appointment_id").references(() => appointmentsTable.id, { onDelete: "set null" }),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
@@ -66,7 +67,7 @@ export const refundsTable = pgTable("refunds", {
 });
 
 export const doctorPayoutsTable = pgTable("doctor_payouts", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   doctorId: text("doctor_id").notNull().references(() => doctorsTable.id, { onDelete: "cascade" }),
   doctorName: text("doctor_name"),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),

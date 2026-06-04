@@ -1,3 +1,5 @@
 - [SahatGhar project layout](sahatghar-layout.md) — Monorepo under Supabase-Gateway/; admin at port 5000, API at port 3000.
-- [SahatGhar API patterns](sahatghar-api.md) — API server uses in-memory mock data; pagination utility in lib/pagination.ts; error classes in lib/errors.ts.
-- [SahatGhar admin auth](sahatghar-auth.md) — Hardcoded bypass: admin@sahatghar.pk / SahatGhar@2025!. Supabase Realtime "httpSend" warnings are benign/pre-existing.
+- [SahatGhar API patterns](sahatghar-api.md) — API server uses Drizzle ORM + real PostgreSQL; pagination utility in lib/pagination.ts; error classes in lib/errors.ts.
+- [SahatGhar auth flow](sahatghar-auth.md) — Real JWT httpOnly cookies. Admin: /api/auth/login, Doctor: /api/auth/doctor/login. Seed creds inside.
+- [Drizzle UUID schema bug](drizzle-uuid-schema.md) — text().default("gen_random_uuid()") stores the literal string; must use .$defaultFn(() => randomUUID()) from node:crypto.
+- [Workspace lib typecheck setup](workspace-lib-typecheck.md) — lib/db, lib/api-zod, lib/api-client-react need tsc --build to emit .d.ts before dependent packages typecheck.

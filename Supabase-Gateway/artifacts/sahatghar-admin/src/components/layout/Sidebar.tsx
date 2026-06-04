@@ -137,11 +137,11 @@ export function Sidebar() {
       <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary flex-shrink-0">
-            {(user?.email || user?.user_metadata?.name || "A")[0].toUpperCase()}
+            {(user?.fullName || user?.email || "A")[0].toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="truncate text-sm font-medium">{user?.user_metadata?.name || user?.email || "Admin User"}</div>
-            <div className="text-xs text-sidebar-foreground/55">Super Admin</div>
+            <div className="truncate text-sm font-medium">{user?.fullName || user?.email || "Admin User"}</div>
+            <div className="text-xs text-sidebar-foreground/55">{user?.role?.replace(/_/g, " ") ?? "Admin"}</div>
           </div>
           <button
             onClick={signOut}

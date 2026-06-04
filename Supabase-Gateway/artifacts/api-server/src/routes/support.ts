@@ -1,61 +1,83 @@
 import { Router } from "express";
+import { eq, and, desc, ilike, or } from "drizzle-orm";
+import { db, supportTicketsTable, ticketRepliesTable } from "../lib/db";
+import { requireAuth, requireRole, SUPPORT_AND_ABOVE } from "../middlewares/auth";
+import { paginate, parsePagination } from "../lib/pagination";
+import { writeAudit } from "../lib/audit";
 
 const router = Router();
+router.use(requireAuth);
 
-const tickets = [
-  { id: "t1", ticket_id: "TKT-2025-1847", category: "Refund Request", status: "open", priority: "high", raised_by: "Ayesha Khan", user_type: "patient", date: "2025-05-22T10:24:00Z", assigned_to: "Ayesha Khan (Agent)", description: "I was charged for a consultation but the doctor was not available.", resolution_notes: null, linked_appointment_id: "apt4", refund_amount: 1200 },
-  { id: "t2", ticket_id: "TKT-2025-1846", category: "Doctor No-Show", status: "in-progress", priority: "high", raised_by: "Ali Raza", user_type: "patient", date: "2025-05-22T09:46:00Z", assigned_to: "Bilal Ahmed (Agent)", description: "Doctor did not show up for scheduled consultation.", resolution_notes: null, linked_appointment_id: "apt3", refund_amount: 800 },
-  { id: "t3", ticket_id: "TKT-2025-1845", category: "Appointment Issue", status: "in-progress", priority: "medium", raised_by: "Hina Fatima", user_type: "patient", date: "2025-05-22T09:15:00Z", assigned_to: "Ayesha Khan (Agent)", description: "Cannot reschedule appointment.", resolution_notes: null, linked_appointment_id: "apt5", refund_amount: null },
-  { id: "t4", ticket_id: "TKT-2025-1844", category: "Payment Issue", status: "resolved", priority: "medium", raised_by: "Hamza Hassan", user_type: "patient", date: "2025-05-22T08:32:00Z", assigned_to: "Usman Javed (Agent)", description: "Double charge on JazzCash.", resolution_notes: "Refund processed successfully.", linked_appointment_id: null, refund_amount: 900 },
-  { id: "t5", ticket_id: "TKT-2025-1843", category: "Prescription Issue", status: "in-progress", priority: "low", raised_by: "Sara Imran", user_type: "patient", date: "2025-05-21T11:06:00Z", assigned_to: null, description: "Cannot access prescription from last consultation.", resolution_notes: null, linked_appointment_id: "apt2", refund_amount: null },
-  { id: "t6", ticket_id: "TKT-2025-1842", category: "Profile Update", status: "resolved", priority: "low", raised_by: "Bilal Ahmed", user_type: "patient", date: "2025-05-21T13:58:00Z", assigned_to: "Usman Javed (Agent)", description: "Unable to update phone number.", resolution_notes: "Profile updated by admin.", linked_appointment_id: null, refund_amount: null },
-  { id: "t7", ticket_id: "TKT-2025-1841", category: "Refund Request", status: "escalated", priority: "high", raised_by: "Usman Javed", user_type: "patient", date: "2025-05-21T16:05:00Z", assigned_to: "Senior Admin", description: "Urgent refund needed for cancelled appointment.", resolution_notes: null, linked_appointment_id: "apt4", refund_amount: 2000 },
-  { id: "t8", ticket_id: "TKT-2025-1840", category: "Doctor No-Show", status: "resolved", priority: "medium", raised_by: "Maryam Siddiqui", user_type: "patient", date: "2025-05-21T17:42:00Z", assigned_to: "Bilal Ahmed (Agent)", description: "Doctor was 30 minutes late.", resolution_notes: "Partial refund of PKR 300 issued.", linked_appointment_id: "apt7", refund_amount: 300 },
-];
-
-router.get("/support/tickets", (req, res) => {
-  let filtered = [...tickets];
-  const { status, priority, user_type, assigned_to, page = "1", limit = "10" } = req.query as Record<string, string>;
-
-  if (status && status !== "all") filtered = filtered.filter(t => t.status === status);
-  if (priority) filtered = filtered.filter(t => t.priority === priority);
-  if (user_type) filtered = filtered.filter(t => t.user_type === user_type);
-
-  const pageNum = parseInt(page);
-  const limitNum = parseInt(limit);
-  const total = filtered.length;
-  const data = filtered.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-
-  res.json({ data, total, page: pageNum, limit: limitNum });
+router.get("/support/tickets", async (req, res): Promise<void> => {
+  const q = req.query as Record<string, string>;
+  const conds: any[] = [];
+  if (q.status && q.status !== "all") conds.push(eq(supportTicketsTable.status, q.status as any));
+  if (q.priority) conds.push(eq(supportTicketsTable.priority, q.priority as any));
+  if (q.category) conds.push(eq(supportTicketsTable.category, q.category as any));
+  if (q.search) conds.push(or(
+    ilike(supportTicketsTable.subject, `%${q.search}%`),
+    ilike(supportTicketsTable.userName, `%${q.search}%`),
+    ilike(supportTicketsTable.userEmail, `%${q.search}%`),
+  ));
+  const all = conds.length
+    ? await db.select().from(supportTicketsTable).where(and(...conds)).orderBy(desc(supportTicketsTable.createdAt))
+    : await db.select().from(supportTicketsTable).orderBy(desc(supportTicketsTable.createdAt));
+  const result = paginate(all, parsePagination(q));
+  res.json(result);
 });
 
-router.get("/support/stats", (req, res) => {
+router.get("/support/stats", async (_req, res) => {
+  const all = await db.select({ status: supportTicketsTable.status, priority: supportTicketsTable.priority }).from(supportTicketsTable);
   res.json({
-    avg_response_time: "18m 24s",
-    sla_breaches: 24,
-    avg_resolution_time: "2h 36m",
-    tickets_closed_week: 842,
-    sla_compliance: 92,
-    agent_performance: [
-      { agent_name: "Ayesha Khan", score: 97 },
-      { agent_name: "Bilal Ahmed", score: 95 },
-      { agent_name: "Sana Imran", score: 94 },
-      { agent_name: "Usman Javed", score: 92 },
-    ],
+    total: all.length,
+    open: all.filter(t => t.status === "OPEN").length,
+    in_progress: all.filter(t => t.status === "IN_PROGRESS").length,
+    resolved: all.filter(t => t.status === "RESOLVED").length,
+    closed: all.filter(t => t.status === "CLOSED").length,
+    urgent: all.filter(t => t.priority === "URGENT").length,
   });
 });
 
-router.get("/support/tickets/:id", (req, res): void => {
-  const ticket = tickets.find(t => t.id === req.params.id);
-  if (!ticket) { res.status(404).json({ error: "Ticket not found" }); return; }
-  res.json(ticket);
+router.get("/support/tickets/:id", async (req, res): Promise<void> => {
+  const ticket = await db.select().from(supportTicketsTable).where(eq(supportTicketsTable.id, (req.params.id as string))).limit(1);
+  if (!ticket.length) { res.status(404).json({ error: "Ticket not found" }); return; }
+  const replies = await db.select().from(ticketRepliesTable)
+    .where(eq(ticketRepliesTable.ticketId, (req.params.id as string)))
+    .orderBy(ticketRepliesTable.createdAt);
+  res.json({ ...ticket[0], replies });
 });
 
-router.patch("/support/tickets/:id", (req, res): void => {
-  const ticket = tickets.find(t => t.id === req.params.id);
-  if (!ticket) { res.status(404).json({ error: "Ticket not found" }); return; }
-  Object.assign(ticket, req.body);
-  res.json(ticket);
+router.patch("/support/tickets/:id", requireRole(...SUPPORT_AND_ABOVE), async (req, res): Promise<void> => {
+  const { status, assignedToAdminId, assignedToAdminName } = req.body;
+  const existing = await db.select().from(supportTicketsTable).where(eq(supportTicketsTable.id, (req.params.id as string))).limit(1);
+  if (!existing.length) { res.status(404).json({ error: "Ticket not found" }); return; }
+  const update: any = { updatedAt: new Date() };
+  if (status) { update.status = status; if (status === "RESOLVED") update.resolvedAt = new Date(); }
+  if (assignedToAdminId !== undefined) update.assignedToAdminId = assignedToAdminId;
+  if (assignedToAdminName !== undefined) update.assignedToAdminName = assignedToAdminName;
+  await db.update(supportTicketsTable).set(update).where(eq(supportTicketsTable.id, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "TICKET_UPDATED", entityType: "SupportTicket", entityId: (req.params.id as string), oldValue: { status: existing[0].status }, newValue: { status } });
+  const updated = await db.select().from(supportTicketsTable).where(eq(supportTicketsTable.id, (req.params.id as string))).limit(1);
+  res.json(updated[0]);
+});
+
+router.post("/support/tickets/:id/reply", requireRole(...SUPPORT_AND_ABOVE), async (req, res): Promise<void> => {
+  const { message, isInternal } = req.body;
+  if (!message) { res.status(400).json({ error: "Message is required" }); return; }
+  const ticket = await db.select().from(supportTicketsTable).where(eq(supportTicketsTable.id, (req.params.id as string))).limit(1);
+  if (!ticket.length) { res.status(404).json({ error: "Ticket not found" }); return; }
+  const reply = await db.insert(ticketRepliesTable).values({
+    ticketId: (req.params.id as string),
+    authorId: req.admin!.userId,
+    authorName: req.admin!.fullName,
+    authorRole: "ADMIN",
+    message,
+    isInternal: isInternal ? "true" : "false",
+  }).returning();
+  if (ticket[0].status === "OPEN") {
+    await db.update(supportTicketsTable).set({ status: "IN_PROGRESS", updatedAt: new Date() }).where(eq(supportTicketsTable.id, (req.params.id as string)));
+  }
+  res.status(201).json(reply[0]);
 });
 
 export default router;

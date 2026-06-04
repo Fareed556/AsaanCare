@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -14,10 +15,11 @@ export const adminRoleEnum = pgEnum("admin_role", [
 ]);
 
 export const usersTable = pgTable("users", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   email: text("email").notNull().unique(),
   phone: text("phone"),
   fullName: text("full_name").notNull(),
+  passwordHash: text("password_hash"),
   role: userRoleEnum("role").notNull().default("PATIENT"),
   status: userStatusEnum("status").notNull().default("ACTIVE"),
   avatarUrl: text("avatar_url"),
@@ -26,7 +28,7 @@ export const usersTable = pgTable("users", {
 });
 
 export const adminUsersTable = pgTable("admin_users", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   userId: text("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   role: adminRoleEnum("role").notNull().default("SUPPORT"),
   permissions: text("permissions").array().notNull().default([]),

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -12,7 +13,7 @@ export const reviewStatusEnum = pgEnum("review_status", [
 ]);
 
 export const reviewsTable = pgTable("reviews", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   appointmentId: text("appointment_id").references(() => appointmentsTable.id, { onDelete: "set null" }),
   patientId: text("patient_id"),
   patientName: text("patient_name"),

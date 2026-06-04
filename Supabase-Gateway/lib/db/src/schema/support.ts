@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -26,7 +27,7 @@ export const ticketCategoryEnum = pgEnum("ticket_category", [
 ]);
 
 export const supportTicketsTable = pgTable("support_tickets", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   userId: text("user_id"),
   userName: text("user_name"),
   userEmail: text("user_email"),
@@ -44,7 +45,7 @@ export const supportTicketsTable = pgTable("support_tickets", {
 });
 
 export const ticketRepliesTable = pgTable("ticket_replies", {
-  id: text("id").primaryKey().default("gen_random_uuid()"),
+  id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   ticketId: text("ticket_id").notNull().references(() => supportTicketsTable.id, { onDelete: "cascade" }),
   authorId: text("author_id"),
   authorName: text("author_name").notNull(),
