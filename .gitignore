@@ -1,0 +1,6 @@
+﻿node_modules/
+.pnpm-store/
+.local/
+dist/
+build/
+.env
