@@ -8,6 +8,7 @@ export type DoctorUser = {
   userId: string;
   fullName: string;
   email: string;
+  phone: string | null;
   specialty: string;
   city: string;
   pmdcNumber: string | null;

@@ -55,7 +55,7 @@ export default function AppointmentDetailScreen() {
   const queryClient = useQueryClient();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const { data: raw, isLoading, error } = useGetAppointment({ id: id ?? "" });
+  const { data: raw, isLoading, error } = useGetAppointment(id ?? "");
   const apt = useMemo(() => {
     return (raw as any)?.data ?? raw;
   }, [raw]);

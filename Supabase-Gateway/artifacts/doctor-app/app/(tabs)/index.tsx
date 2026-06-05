@@ -33,7 +33,8 @@ export default function HomeScreen() {
   const queryClient = useQueryClient();
 
   const { data: aptData, isLoading: loadingApts, refetch } = useListAppointments({
-    params: { doctor_id: doctor?.id ?? "d1", limit: 50 },
+    doctor_id: doctor?.id,
+    limit: 50,
   });
   const { data: stats } = useGetAppointmentStats();
 
@@ -124,7 +125,7 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.greeting}>{getGreeting()},</Text>
             <Text style={styles.doctorName} numberOfLines={1}>
-              {doctor?.name ?? "Doctor"}
+              {doctor?.fullName ?? "Doctor"}
             </Text>
             <Text style={styles.specialty}>{doctor?.specialty ?? ""}</Text>
           </View>

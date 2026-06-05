@@ -52,7 +52,8 @@ export default function ProfileScreen() {
   const { doctor, logout } = useAuth();
 
   const { data: aptData } = useListAppointments({
-    params: { doctor_id: doctor?.id ?? "d1", limit: 200 },
+    doctor_id: doctor?.id,
+    limit: 200,
   });
 
   const appointments = useMemo(() => {
@@ -95,9 +96,9 @@ export default function ProfileScreen() {
       {/* Hero header */}
       <View style={[styles.hero, { backgroundColor: colors.navBackground, paddingTop: topPad + 16 }]}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{doctor?.name?.charAt(4) ?? "D"}</Text>
+          <Text style={styles.avatarText}>{doctor?.fullName?.charAt(0) ?? "D"}</Text>
         </View>
-        <Text style={styles.name}>{doctor?.name ?? "Doctor"}</Text>
+        <Text style={styles.name}>{doctor?.fullName ?? "Doctor"}</Text>
         <Text style={styles.specialty}>{doctor?.specialty ?? "—"}</Text>
         <Text style={styles.city}>
           <Feather name="map-pin" size={12} color="rgba(255,255,255,0.5)" /> {doctor?.city ?? "—"}
@@ -124,13 +125,13 @@ export default function ProfileScreen() {
       {/* Info */}
       <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>PRACTICE INFO</Text>
-        <Row icon="credit-card" label="PMDC Number" value={doctor?.pmdc_number ?? "—"} iconBg={colors.info} />
+        <Row icon="credit-card" label="PMDC Number" value={doctor?.pmdcNumber ?? "—"} iconBg={colors.info} />
         <Row icon="phone" label="Phone" value={doctor?.phone ?? "—"} iconBg="#7c3aed" />
         <Row icon="mail" label="Email" value={doctor?.email ?? "—"} iconBg={colors.warning} />
         <Row
           icon="dollar-sign"
           label="Consultation Fee"
-          value={doctor?.fee ? `PKR ${doctor.fee.toLocaleString()}` : "—"}
+          value={doctor?.consultationFee ? `PKR ${Number(doctor.consultationFee).toLocaleString()}` : "—"}
           iconBg={colors.success}
         />
       </View>

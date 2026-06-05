@@ -21,8 +21,8 @@ export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
-  const [email, setEmail] = useState("ahmed.raza@sahatghar.pk");
-  const [password, setPassword] = useState("doctor@2025");
+  const [email, setEmail] = useState("ayesha.noor@sahatghar.pk");
+  const [password, setPassword] = useState("Doctor@2025!");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +38,7 @@ export default function LoginScreen() {
     const success = await login(email.trim(), password.trim());
     setLoading(false);
     if (!success) {
-      setError("Invalid credentials. Try ahmed.raza@sahatghar.pk");
+      setError("Invalid credentials. Check your email and password.");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } else {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -153,7 +153,7 @@ export default function LoginScreen() {
           <View style={[styles.demoHint, { backgroundColor: colors.muted, borderColor: colors.border }]}>
             <Feather name="info" size={14} color={colors.mutedForeground} />
             <Text style={[styles.demoText, { color: colors.mutedForeground }]}>
-              Demo: ahmed.raza@sahatghar.pk / any password
+              Demo: ayesha.noor@sahatghar.pk / Doctor@2025!
             </Text>
           </View>
         </ScrollView>

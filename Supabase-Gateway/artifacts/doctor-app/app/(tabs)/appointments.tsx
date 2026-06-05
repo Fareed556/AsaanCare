@@ -36,7 +36,8 @@ export default function AppointmentsScreen() {
   const [search, setSearch] = useState("");
 
   const { data: aptData, isLoading, refetch, isRefetching } = useListAppointments({
-    params: { doctor_id: doctor?.id ?? "d1", limit: 100 },
+    doctor_id: doctor?.id,
+    limit: 100,
   });
 
   const updateApt = useUpdateAppointment({
