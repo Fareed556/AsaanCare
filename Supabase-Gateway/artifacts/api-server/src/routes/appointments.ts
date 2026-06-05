@@ -77,6 +77,24 @@ router.get("/appointments/:id", async (req, res): Promise<void> => {
   res.json(mapAppointment(appt[0]));
 });
 
+async function updateAppointmentById(req: any, res: any): Promise<void> {
+  const { status, cancellationReason, notes } = req.body;
+  const existing = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, (req.params.id as string))).limit(1);
+  if (!existing.length) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const dbStatus = String(status).toUpperCase();
+  await db.update(appointmentsTable).set({
+    status: dbStatus as any,
+    cancellationReason: cancellationReason ?? existing[0].cancellationReason,
+    notes: notes ?? existing[0].notes,
+    updatedAt: new Date(),
+  }).where(eq(appointmentsTable.id, (req.params.id as string)));
+  await writeAudit({ req, actorId: req.admin!.userId, actorName: req.admin!.fullName, actorRole: req.admin!.role, action: "APPOINTMENT_STATUS_CHANGED", entityType: "Appointment", entityId: (req.params.id as string), oldValue: { status: existing[0].status }, newValue: { status: dbStatus } });
+  const updated = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, (req.params.id as string))).limit(1);
+  res.json(mapAppointment(updated[0]));
+}
+
+router.patch("/appointments/:id", requireRole("SUPER_ADMIN", "ADMIN", "SUPPORT"), updateAppointmentById);
+
 router.patch("/appointments/:id/status", requireRole("SUPER_ADMIN", "ADMIN", "SUPPORT"), async (req, res): Promise<void> => {
   const { status, cancellationReason, notes } = req.body;
   const existing = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, (req.params.id as string))).limit(1);
