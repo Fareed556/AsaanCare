@@ -1,20 +1,21 @@
 # KNOWN_ISSUES.md
 
+## Last updated: 2026-06-04
+
+---
+
+### Currently known issues (active)
+
+- Doctor app (`artifacts/doctor-app/`) exists but is not wired to Replit workflows — login not tested end-to-end
+- `Fareed` / Super Admin user is NOT seeded in the database — `/api/auth/login` will fail for any user until DB is seeded or a real admin user is created
+
+---
+
 ## Active Issues
 
 ---
 
-### 1. Subscriptions Routes Use Mock Data
-**Severity:** Medium  
-**Files:** `artifacts/api-server/src/routes/subscriptions.ts`
-
-The `/subscriptions/plans`, `/subscriptions/stats`, and `/subscriptions` routes return hardcoded mock arrays. There is no `subscriptions` table in the database schema.
-
-**Fix needed:** Design a subscriptions table, add to Drizzle schema, migrate DB, connect routes to real DB.
-
----
-
-### 2. Seed Script Does Not Guard Against Duplicate Runs
+### 1. Seed Script Does Not Guard Against Duplicate Runs
 **Severity:** Low  
 **Files:** `artifacts/api-server/src/seed.ts`
 
@@ -24,7 +25,7 @@ Running the seed script multiple times inserts duplicate records. There is no `O
 
 ---
 
-### 3. TypeScript Lib Build Order
+### 2. TypeScript Lib Build Order
 **Severity:** Low (dev experience)  
 **Files:** `lib/db`, `lib/api-zod`, `lib/api-client-react`
 
@@ -39,8 +40,8 @@ pnpm --filter @workspace/api-client-react run build
 
 ---
 
-### 4. bcrypt Cannot Be Used on Replit/Linux
-**Severity:** Resolved  
+### 3. bcrypt Cannot Be Used on Replit/Linux
+**Severity:** Resolved — do not reintroduce  
 **Files:** All previously using `bcrypt`
 
 `bcrypt@6` requires native compilation via node-gyp. Replit/Linux does not have the required build toolchain in a usable form. **Replaced with `bcryptjs`** which is a pure JavaScript implementation with identical API.
@@ -49,7 +50,7 @@ pnpm --filter @workspace/api-client-react run build
 
 ---
 
-### 5. JWT_SECRET Falls Back to Hardcoded String in Dev
+### 4. JWT_SECRET Falls Back to Hardcoded String in Dev
 **Severity:** Medium (production risk)  
 **Files:** `artifacts/api-server/src/lib/jwt.ts`
 
@@ -59,7 +60,7 @@ If `JWT_SECRET` is not set, the server uses `"sahatghar-dev-secret-2025-change-i
 
 ---
 
-### 6. Doctor App Cannot Run on Replit
+### 5. Doctor App Cannot Run on Replit
 **Severity:** Low (by design)  
 **Files:** `artifacts/doctor-app/`
 
@@ -67,7 +68,7 @@ The Expo / React Native doctor app cannot be previewed in a browser. It requires
 
 ---
 
-### 7. No Email/SMS Notifications
+### 6. No Email/SMS Notifications
 **Severity:** Low  
 **Status:** Not implemented
 
@@ -75,7 +76,7 @@ The `notifications` table and routes exist, but there is no email or SMS deliver
 
 ---
 
-### 8. Ticket Reply `is_internal` Is Stored as Text
+### 7. Ticket Reply `is_internal` Is Stored as Text
 **Severity:** Low  
 **Files:** `lib/db/src/schema/support.ts`
 
@@ -85,7 +86,7 @@ The `ticket_replies.is_internal` column is defined as `text` type storing `"true
 
 ---
 
-### 9. Document Upload URLs Are Placeholders
+### 8. Document Upload URLs Are Placeholders
 **Severity:** Medium  
 **Files:** `lib/db/src/schema/doctors.ts` (`doctor_verifications`)
 
@@ -95,11 +96,14 @@ The `cnic_front_url`, `cnic_back_url`, `degree_url`, `certificate_url` columns e
 
 ---
 
-## Resolved Issues
+## Fixed (for reference)
 
-| Issue | Resolution |
-|---|---|
-| `bcrypt` native build failure | Replaced with `bcryptjs` |
-| `node_modules` missing on Replit | `pnpm install` completed |
-| `vite: not found` on workflow start | Fixed by installing dependencies |
-| `esbuild: not found` on workflow start | Fixed by installing dependencies |
+| Issue | Resolution | Date |
+|---|---|---|
+| ✅ PATCH /appointments/:id was 404 | Added route alongside existing `/status` route | 2026-06-04 |
+| ✅ Supabase dead code | Deleted `supabase.ts`, removed `@supabase/supabase-js` from admin `package.json` | 2026-06-04 |
+| ✅ Subscriptions used mock data | Migrated to real Drizzle queries against `subscriptionPlansTable` + `patientSubscriptionsTable` | (date unknown) |
+| `bcrypt` native build failure | Replaced with `bcryptjs` | — |
+| `node_modules` missing on Replit | `pnpm install` completed | — |
+| `vite: not found` on workflow start | Fixed by installing dependencies | — |
+| `esbuild: not found` on workflow start | Fixed by installing dependencies | — |
