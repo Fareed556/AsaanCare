@@ -1,13 +1,12 @@
 # KNOWN_ISSUES.md
 
-## Last updated: 2026-06-04
+## Last updated: 2026-06-05
 
 ---
 
 ### Currently known issues (active)
 
-- Doctor app (`artifacts/doctor-app/`) exists but is not wired to Replit workflows — login not tested end-to-end
-- `Fareed` / Super Admin user is NOT seeded in the database — `/api/auth/login` will fail for any user until DB is seeded or a real admin user is created
+No blocking issues at this time. See active issues section below for non-blocking concerns.
 
 ---
 
@@ -100,6 +99,8 @@ The `cnic_front_url`, `cnic_back_url`, `degree_url`, `certificate_url` columns e
 
 | Issue | Resolution | Date |
 |---|---|---|
+| ✅ Database not seeded — login broken | Ran `pnpm run seed`; all 5 admin users + 20 doctors in DB; logins verified | 2026-06-05 |
+| ✅ Doctor app not wired to workflows | Workflow "Supabase-Gateway/artifacts/doctor-app: expo" already configured; doctor login tested end-to-end | 2026-06-05 |
 | ✅ PATCH /appointments/:id was 404 | Added route alongside existing `/status` route | 2026-06-04 |
 | ✅ Supabase dead code | Deleted `supabase.ts`, removed `@supabase/supabase-js` from admin `package.json` | 2026-06-04 |
 | ✅ Subscriptions used mock data | Migrated to real Drizzle queries against `subscriptionPlansTable` + `patientSubscriptionsTable` | (date unknown) |
